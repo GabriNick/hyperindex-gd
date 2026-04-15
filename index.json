@@ -4,14 +4,14 @@
   "id": "hyperindex-gd",
   "description": "Custom nong index",
   "lastUpdate": 1713139200,
-
   "features": {
     "submit": {
       "url": "",
-      "supportedSongTypes": ["hosted"]
+      "supportedSongTypes": [
+        "hosted"
+      ]
     }
   },
-
   "nongs": {
     "hosted": {
       "11111111-1111-1111-1111-111111111111": {
@@ -19,7 +19,18 @@
         "artist": "Test Artist",
         "url": "https://www.dropbox.com/scl/fi/6ko3pyks7ahm0u67qqry2/FLOW-FLOW-FLOW-SAHUUUUUUUUUUUUUUUR.mp3?rlkey=it8gjq9vekwc4svk9zxsbmm3n&st=e4myvm8x&dl=1",
         "startOffset": 0,
-        "songs": [123456]
+        "songs": [
+          123456
+        ]
+      },
+      "1776296238374": {
+        "name": "a X a - a",
+        "artist": "a (mashup by GabriNick)",
+        "url": "https://file.garden/ad7TTAx5M13uwHRh/PTTOS%20x%20Voila.mp3",
+        "startOffset": 0,
+        "songs": [
+          941913
+        ]
       }
     },
     "youtube": {}
