@@ -9,7 +9,6 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "module",
   "dependencies": {
     "@octokit/rest": "^22.0.1",
     "discord.js": "^14.26.3",
