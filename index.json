@@ -13,17 +13,7 @@
     }
   },
   "nongs": {
-    "hosted": {
-      "1776304015350": {
-        "name": "moment",
-        "artist": "Vierre Cloud",
-        "url": null,
-        "startOffset": 0,
-        "songs": [
-          526067
-        ]
-      }
-    },
+    "hosted": {},
     "youtube": {}
   }
 }
