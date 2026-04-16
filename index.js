@@ -14,7 +14,13 @@ const {
 
 const { Octokit } = require("@octokit/rest");
 
-const client = new Client({ intents: [GatewayIntentBits.Guilds] });
+const client = new Client({
+    intents: [
+        GatewayIntentBits.Guilds,
+        GatewayIntentBits.GuildMessages,    // ✅ AGREGADO: para recibir mensajes
+        GatewayIntentBits.MessageContent    // ✅ AGREGADO: para leer el contenido
+    ]
+});
 const octokit = new Octokit({ auth: process.env.GITHUB_TOKEN });
 
 // ==================== CONFIG ====================
@@ -23,6 +29,10 @@ const CHANNEL_REVIEW = "1494189412228141107";
 const CHANNEL_FILES = "1494134281218560111";
 const CHANNEL_NOTIFY = "1494184620676218880";
 const OWNER_ID = "1388922967223832606";
+
+// ✅ AGREGADO: IDs de canales donde solo se permiten slash commands
+// Podés agregar más IDs separados por coma: ["ID1", "ID2"]
+const CHANNELS_COMMANDS_ONLY = [CHANNEL_REVIEW];
 
 const pendingSubmissions = {};
 
@@ -73,6 +83,20 @@ const rest = new REST({ version: "10" }).setToken(process.env.DISCORD_TOKEN);
         console.error("Error al registrar comandos:", e);
     }
 })();
+
+// ==================== BORRAR MENSAJES (solo slash commands permitidos) ====================
+// ✅ AGREGADO: borra cualquier mensaje normal en los canales de la lista
+client.on("messageCreate", async (message) => {
+    if (message.author.bot) return; // ignorar bots
+
+    if (CHANNELS_COMMANDS_ONLY.includes(message.channel.id)) {
+        await message.delete().catch(() => {}); // .catch por si ya fue borrado
+        const warning = await message.channel.send({
+            content: `${message.author} Este canal es solo para comandos slash (/submit, /submit-mashup).`,
+        });
+        setTimeout(() => warning.delete().catch(() => {}), 5000); // se borra a los 5s
+    }
+});
 
 // ==================== INTERACTIONS ====================
 client.on("interactionCreate", async interaction => {
