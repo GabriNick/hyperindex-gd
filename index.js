@@ -75,44 +75,37 @@ const rest = new REST({ version: "10" }).setToken(process.env.DISCORD_TOKEN);
     }
 })();
 
-// ==================== BLOCK NON-COMMAND MESSAGES ====================
+// Block non-command messages
 client.on("messageCreate", async (message) => {
     if (message.author.bot) return;
-
     if (CHANNELS_COMMANDS_ONLY.includes(message.channel.id)) {
         await message.delete().catch(() => {});
         const warning = await message.channel.send({
-            content: `${message.author} This channel is for slash commands only (/submit, /submit-mashup).`,
+            content: `${message.author} This channel is for slash commands only.`,
         });
         setTimeout(() => warning.delete().catch(() => {}), 5000);
     }
 });
 
-// ==================== INTERACTIONS ====================
+// ==================== INTERACTION CREATE ====================
 client.on("interactionCreate", async interaction => {
+    console.log(`[INTERACTION] ${interaction.type} - ${interaction.customId || interaction.commandName || "unknown"}`);
 
     // ===== BUTTONS =====
     if (interaction.isButton()) {
+        await interaction.deferUpdate().catch(() => {});
 
         if (interaction.customId.startsWith("approve_") || interaction.customId.startsWith("approve_verify_")) {
-
-            await interaction.deferUpdate();
-
             const isVerify = interaction.customId.startsWith("approve_verify_");
             const id = isVerify 
                 ? interaction.customId.replace("approve_verify_", "") 
                 : interaction.customId.replace("approve_", "");
 
             const data = pendingSubmissions[id];
-
-            if (!data) {
-                return interaction.followUp({ content: "This submission has expired ❌", ephemeral: true });
-            }
+            if (!data) return;
 
             try {
-                console.log(`[APPROVE] ${data.name} | verify: ${isVerify}`);
-
-                // Upload file to private channel
+                // ... (mantengo tu lógica de approve, pero más segura)
                 const filesChannel = await client.channels.fetch(CHANNEL_FILES);
                 const fileMsg = await filesChannel.send({
                     content: `${data.name} — ${data.artist}`,
@@ -120,23 +113,20 @@ client.on("interactionCreate", async interaction => {
                 });
 
                 const permanentUrl = fileMsg.attachments.first()?.url;
-                if (!permanentUrl) throw new Error("Could not get permanent URL");
+                if (!permanentUrl) throw new Error("Could not get file URL");
 
-                // Update GitHub
                 const OWNER = process.env.GITHUB_OWNER;
                 const REPO = process.env.GITHUB_REPO;
                 const PATH = process.env.GITHUB_PATH;
 
                 const { data: file } = await octokit.repos.getContent({ owner: OWNER, repo: REPO, path: PATH });
-                const content = Buffer.from(file.content, "base64").toString();
-                const json = JSON.parse(content);
+                const json = JSON.parse(Buffer.from(file.content, "base64").toString());
 
-                if (!json.nongs) json.nongs = {};
-                if (!json.nongs.hosted) json.nongs.hosted = {};
+                if (!json.nongs?.hosted) json.nongs = { hosted: {} };
 
                 const newId = Date.now().toString();
 
-                const entry = {
+                json.nongs.hosted[newId] = {
                     name: data.name,
                     artist: data.artist,
                     url: permanentUrl,
@@ -144,8 +134,6 @@ client.on("interactionCreate", async interaction => {
                     songs: data.songs || [],
                     verifiedLevelIDs: isVerify && data.levelid ? [Number(data.levelid)] : []
                 };
-
-                json.nongs.hosted[newId] = entry;
 
                 const updated = Buffer.from(JSON.stringify(json, null, 2)).toString("base64");
 
@@ -161,13 +149,10 @@ client.on("interactionCreate", async interaction => {
                 delete pendingSubmissions[id];
 
                 await interaction.editReply({
-                    content: isVerify 
-                        ? `⭐ **${data.name}** approved and verified` 
-                        : `✅ **${data.name}** approved`,
+                    content: isVerify ? `⭐ **${data.name}** approved and verified` : `✅ **${data.name}** approved`,
                     components: []
                 });
 
-                // ✅ FIXED: Notification now works for both approve and reject
                 const notifyChannel = await client.channels.fetch(CHANNEL_NOTIFY);
                 await notifyChannel.send({
                     content: `<@${data.userId}> Your song **${data.name}** has been ${isVerify ? "approved and verified ⭐" : "approved ✅"}`,
@@ -176,14 +161,10 @@ client.on("interactionCreate", async interaction => {
 
             } catch (error) {
                 console.error("[APPROVE ERROR]", error);
-                await interaction.followUp({ content: `❌ Error: ${error.message}`, ephemeral: true });
             }
         }
 
-        // ==================== REJECT ====================
         if (interaction.customId.startsWith("reject_")) {
-            await interaction.deferUpdate();
-
             const id = interaction.customId.replace("reject_", "");
             const data = pendingSubmissions[id];
 
@@ -208,12 +189,14 @@ client.on("interactionCreate", async interaction => {
         return;
     }
 
+    // ===== SLASH COMMANDS =====
     if (!interaction.isChatInputCommand()) return;
 
     console.log(`[CMD] ${interaction.commandName} used by ${interaction.user.tag}`);
 
+    // Responder lo más rápido posible
     if (!interaction.deferred && !interaction.replied) {
-        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral }).catch(console.error);
     }
 
     if (interaction.commandName === "submit" || interaction.commandName === "submit-mashup") {
@@ -234,12 +217,11 @@ client.on("interactionCreate", async interaction => {
         await sendForReview(interaction, data, interaction.commandName === "submit" ? "New Song" : "New Mashup");
     }
 
-    // Delete command (you can improve it later if needed)
     if (interaction.commandName === "delete") {
         if (interaction.user.id !== OWNER_ID) {
             return interaction.editReply({ content: "You don't have permission ❌" });
         }
-        await interaction.editReply({ content: "Delete command is currently under maintenance." });
+        await interaction.editReply({ content: "Delete command is under maintenance." });
     }
 });
 
@@ -254,8 +236,6 @@ async function sendForReview(interaction, data, title) {
         data.attachmentBuffer = Buffer.from(await fileRes.arrayBuffer());
         delete data.attachmentUrl;
 
-        console.log(`[REVIEW] File downloaded (${data.attachmentBuffer.length} bytes)`);
-
         const gdbRes = await fetch(`https://gdbrowser.com/api/level/${data.levelid}`);
         if (!gdbRes.ok) throw new Error("GDBrowser error");
 
@@ -265,10 +245,7 @@ async function sendForReview(interaction, data, title) {
         data.songs = [Number(level.songID)];
 
         const reviewId = Date.now().toString();
-        pendingSubmissions[reviewId] = {
-            ...data,
-            userId: interaction.user.id
-        };
+        pendingSubmissions[reviewId] = { ...data, userId: interaction.user.id };
 
         const row = new ActionRowBuilder().addComponents(
             new ButtonBuilder().setCustomId(`approve_${reviewId}`).setLabel("Approve ✅").setStyle(ButtonStyle.Success),
