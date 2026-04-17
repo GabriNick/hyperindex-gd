@@ -82,11 +82,6 @@ client.on("messageCreate", async (message) => {
 
     if (CHANNELS_COMMANDS_ONLY.includes(message.channel.id)) {
         await message.delete().catch(() => {});
-
-        const warning = await message.channel.send({
-            content: `${message.author} This channel is for slash commands only (/submit and /submit-mashup). Please do not send normal messages.`,
-        });
-        setTimeout(() => warning.delete().catch(() => {}), 6000);
     }
 });
 
