@@ -285,6 +285,18 @@
         "verifiedLevelIDs": [
           75813671
         ]
+      },
+      "1776394913257": {
+        "name": "Hailfire",
+        "artist": "Rukkus",
+        "url": "https://cdn.discordapp.com/attachments/1494134281218560111/1494533323308142714/Hailfire_w67yHgaqn4g.mp3?ex=69e2f41f&is=69e1a29f&hm=ebc808fd0d99104c6a873576952835708668429c9037907a20ef7e0e21d3db67&",
+        "startOffset": 0,
+        "songs": [
+          62885
+        ],
+        "verifiedLevelIDs": [
+          80518698
+        ]
       }
     },
     "youtube": {}
