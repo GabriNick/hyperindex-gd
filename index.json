@@ -215,6 +215,18 @@
           709578
         ],
         "verifiedLevelIDs": []
+      },
+      "1776388785096": {
+        "name": "Lost (XVA Remix)",
+        "artist": "CRIM3S",
+        "url": "https://cdn.discordapp.com/attachments/1494134281218560111/1494507625662910625/lost_xva_remix.mp3?ex=69e2dc30&is=69e18ab0&hm=8f93828bd375c838880cd3fbb6b7c14852cfd38d8084c3d23089c344ff277838&",
+        "startOffset": 0,
+        "songs": [
+          945695
+        ],
+        "verifiedLevelIDs": [
+          27690100
+        ]
       }
     },
     "youtube": {}
