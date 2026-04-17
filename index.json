@@ -297,6 +297,18 @@
         "verifiedLevelIDs": [
           80518698
         ]
+      },
+      "1776394935246": {
+        "name": "Hoarfrost",
+        "artist": "AXIUS LINK",
+        "url": "https://cdn.discordapp.com/attachments/1494134281218560111/1494533420733304832/1380527.mp3?ex=69e2f436&is=69e1a2b6&hm=b66399fcad1d028a67416b9aeb10e0e62ffaed8dd5e7f1c3896e79a60adcb73f&",
+        "startOffset": 0,
+        "songs": [
+          1380527
+        ],
+        "verifiedLevelIDs": [
+          110991117
+        ]
       }
     },
     "youtube": {}
