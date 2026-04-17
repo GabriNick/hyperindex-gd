@@ -27,14 +27,15 @@ const octokit = new Octokit({ auth: process.env.GITHUB_TOKEN });
 // ==================== CONFIG ====================
 const GUILD_ID = "1493493321149190174";
 
-const CHANNEL_SUBMIT = "1493748721970577489";   // Channel where users can only use /submit commands
-const CHANNEL_REVIEW = "1494189412228141107";   // Channel where submissions appear with approval buttons
-const CHANNEL_FILES = "1494134281218560111";    // Private channel to store approved files
-const CHANNEL_NOTIFY = "1494184620676218880";   // Channel for user notifications
+const CHANNEL_SUBMIT = "1493748721970577489";   // Only slash commands allowed
+const CHANNEL_REVIEW = "1494189412228141107";   // Review with approval buttons
+const CHANNEL_FILES = "1494134281218560111";    // Private files channel
+const CHANNEL_NOTIFY = "1494184620676218880";   // Notifications to users
 const OWNER_ID = "1388922967223832606";
 
-// Channel where non-command messages will be deleted
 const CHANNELS_COMMANDS_ONLY = [CHANNEL_SUBMIT];
+
+const pendingSubmissions = {};   // ← Esta línea es importante
 
 // ==================== COMMANDS ====================
 const commands = [
@@ -101,7 +102,6 @@ client.on("interactionCreate", async interaction => {
             if (!data) return;
 
             try {
-                // Upload file to private channel
                 const filesChannel = await client.channels.fetch(CHANNEL_FILES);
                 const fileMsg = await filesChannel.send({
                     content: `${data.name} — ${data.artist}`,
@@ -111,7 +111,6 @@ client.on("interactionCreate", async interaction => {
                 const permanentUrl = fileMsg.attachments.first()?.url;
                 if (!permanentUrl) throw new Error("Could not get permanent URL");
 
-                // Update GitHub
                 const OWNER = process.env.GITHUB_OWNER || "gabrinick";
                 const REPO = process.env.GITHUB_REPO || "hyperindex-gd";
                 const PATH = process.env.GITHUB_PATH || "index.json";
@@ -146,13 +145,10 @@ client.on("interactionCreate", async interaction => {
                 delete pendingSubmissions[id];
 
                 await interaction.editReply({
-                    content: isVerify 
-                        ? `⭐ **${data.name}** approved and verified` 
-                        : `✅ **${data.name}** approved`,
+                    content: isVerify ? `⭐ **${data.name}** approved and verified` : `✅ **${data.name}** approved`,
                     components: []
                 });
 
-                // Notification
                 const notifyChannel = await client.channels.fetch(CHANNEL_NOTIFY);
                 await notifyChannel.send({
                     content: `<@${data.userId}> Your song **${data.name}** has been ${isVerify ? "approved and verified ⭐" : "approved ✅"}`,
