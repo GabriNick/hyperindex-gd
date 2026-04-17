@@ -215,6 +215,76 @@
           709578
         ],
         "verifiedLevelIDs": []
+      },
+      "1776388785096": {
+        "name": "Lost (XVA Remix)",
+        "artist": "CRIM3S",
+        "url": "https://cdn.discordapp.com/attachments/1494134281218560111/1494507625662910625/lost_xva_remix.mp3?ex=69e2dc30&is=69e18ab0&hm=8f93828bd375c838880cd3fbb6b7c14852cfd38d8084c3d23089c344ff277838&",
+        "startOffset": 0,
+        "songs": [
+          945695
+        ],
+        "verifiedLevelIDs": [
+          27690100
+        ]
+      },
+      "1776389893666": {
+        "name": "NOMAD",
+        "artist": "Radiohead",
+        "url": "https://cdn.discordapp.com/attachments/1494134281218560111/1494512274574934086/1366847.mp3?ex=69e2e084&is=69e18f04&hm=7e8f16e0abb8635d893a8830a2d6fbf9cb5408499acb517d56a4d47bf5ba7531&",
+        "startOffset": 0,
+        "songs": [
+          1366847
+        ],
+        "verifiedLevelIDs": [
+          115077305
+        ]
+      },
+      "1776389955413": {
+        "name": "Exit Music (for a Film)",
+        "artist": "Radiohead",
+        "url": "https://cdn.discordapp.com/attachments/1494134281218560111/1494512534307471600/1366847.mp3?ex=69e2e0c2&is=69e18f42&hm=95306f2316c8461cf235a88e73a53f606ed1f6f4915f62fb26781095e61e546c&",
+        "startOffset": 0,
+        "songs": [
+          1366847
+        ],
+        "verifiedLevelIDs": []
+      },
+      "1776389956941": {
+        "name": "Exit Music (for a Film)",
+        "artist": "Radiohead",
+        "url": "https://cdn.discordapp.com/attachments/1494134281218560111/1494512540875620454/1366847.mp3?ex=69e2e0c4&is=69e18f44&hm=b667266f7d5a4b490a4fa0b3036528eebf01c08bb6d3e26b8ffa94a462fb6858&",
+        "startOffset": 0,
+        "songs": [
+          1366847
+        ],
+        "verifiedLevelIDs": [
+          115077305
+        ]
+      },
+      "1776390183394": {
+        "name": "Decks Dark",
+        "artist": "Radiohead",
+        "url": "https://cdn.discordapp.com/attachments/1494134281218560111/1494513487404208280/1378398.mp3?ex=69e2e1a6&is=69e19026&hm=9a4b579c3274b394b0b1eed15ad5324c7bcb105f48b18739e127a14c87bbe35b&",
+        "startOffset": 0,
+        "songs": [
+          1378398
+        ],
+        "verifiedLevelIDs": [
+          95719795
+        ]
+      },
+      "1776390275119": {
+        "name": "Lotus Flower",
+        "artist": "Radiohead",
+        "url": "https://cdn.discordapp.com/attachments/1494134281218560111/1494513874106454108/861866.mp3?ex=69e2e202&is=69e19082&hm=353c6e7791b45aed5b743ecce4f8e3d55558a695ec312f8c667416dee6691f07&",
+        "startOffset": 0,
+        "songs": [
+          861866
+        ],
+        "verifiedLevelIDs": [
+          75813671
+        ]
       }
     },
     "youtube": {}
