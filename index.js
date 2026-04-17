@@ -109,12 +109,38 @@ client.on("messageCreate", async (message) => {
 // ==================== INTERACTIONS ====================
 client.on("interactionCreate", async interaction => {
 
-    // Botones
+    // ==================== BUTTONS ====================
     if (interaction.isButton()) {
-        await interaction.deferUpdate().catch(() => {});
 
-        // Aprobar
+        // REJECT → Abre el modal (SIN deferUpdate antes)
+        if (interaction.customId.startsWith("reject_")) {
+            const id = interaction.customId.replace("reject_", "");
+            const data = pendingSubmissions[id];
+            if (!data) return;
+
+            const modal = new ModalBuilder()
+                .setCustomId(`reject_modal_${id}`)
+                .setTitle("Reject Submission");
+
+            const reasonInput = new TextInputBuilder()
+                .setCustomId("reject_reason")
+                .setLabel("Reason for rejection")
+                .setStyle(TextInputStyle.Paragraph)
+                .setPlaceholder("Why are you rejecting this song?")
+                .setRequired(true)
+                .setMaxLength(500);
+
+            const row = new ActionRowBuilder().addComponents(reasonInput);
+            modal.addComponents(row);
+
+            await interaction.showModal(modal);
+            return;
+        }
+
+        // APPROVE (normal y verify)
         if (interaction.customId.startsWith("approve_") || interaction.customId.startsWith("approve_verify_")) {
+            await interaction.deferUpdate().catch(() => {});
+
             const isVerify = interaction.customId.startsWith("approve_verify_");
             const id = isVerify 
                 ? interaction.customId.replace("approve_verify_", "") 
@@ -167,7 +193,9 @@ client.on("interactionCreate", async interaction => {
                 delete pendingSubmissions[id];
 
                 await interaction.editReply({
-                    content: isVerify ? `⭐ **${data.name}** approved and verified` : `✅ **${data.name}** approved`,
+                    content: isVerify 
+                        ? `⭐ **${data.name}** approved and verified` 
+                        : `✅ **${data.name}** approved`,
                     components: []
                 });
 
@@ -182,32 +210,10 @@ client.on("interactionCreate", async interaction => {
             }
         }
 
-        // Rechazar → Abre modal
-        if (interaction.customId.startsWith("reject_")) {
-            const id = interaction.customId.replace("reject_", "");
-            const data = pendingSubmissions[id];
-            if (!data) return;
-
-            const modal = new ModalBuilder()
-                .setCustomId(`reject_modal_${id}`)
-                .setTitle("Reject Song");
-
-            const reasonInput = new TextInputBuilder()
-                .setCustomId("reject_reason")
-                .setLabel("Reason for rejection")
-                .setStyle(TextInputStyle.Paragraph)
-                .setPlaceholder("Why are you rejecting this submission?")
-                .setRequired(true)
-                .setMaxLength(500);
-
-            modal.addComponents(new ActionRowBuilder().addComponents(reasonInput));
-
-            await interaction.showModal(modal);
-        }
         return;
     }
 
-    // Modal de rechazo
+    // ==================== MODAL SUBMIT (Rejection Reason) ====================
     if (interaction.isModalSubmit() && interaction.customId.startsWith("reject_modal_")) {
         const id = interaction.customId.replace("reject_modal_", "");
         const data = pendingSubmissions[id];
@@ -215,7 +221,7 @@ client.on("interactionCreate", async interaction => {
 
         const reason = interaction.fields.getTextInputValue("reject_reason");
 
-        await interaction.deferUpdate();
+        await interaction.deferUpdate().catch(() => {});
 
         const notifyChannel = await client.channels.fetch(CHANNEL_NOTIFY).catch(() => null);
         if (notifyChannel) {
@@ -228,7 +234,7 @@ client.on("interactionCreate", async interaction => {
         delete pendingSubmissions[id];
 
         await interaction.editReply({
-            content: `❌ **${data.name}** rejected\nReason: ${reason}`,
+            content: `❌ **${data.name}** rejected\n**Reason:** ${reason}`,
             components: []
         });
         return;
