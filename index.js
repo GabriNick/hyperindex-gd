@@ -137,10 +137,8 @@ client.on("interactionCreate", async interaction => {
             return;
         }
 
-        // APPROVE (normal y verify)
+        // ==================== APROBAR ====================
         if (interaction.customId.startsWith("approve_") || interaction.customId.startsWith("approve_verify_")) {
-            await interaction.deferUpdate().catch(() => {});
-
             const isVerify = interaction.customId.startsWith("approve_verify_");
             const id = isVerify 
                 ? interaction.customId.replace("approve_verify_", "") 
@@ -150,15 +148,43 @@ client.on("interactionCreate", async interaction => {
             if (!data) return;
 
             try {
+                console.log(`[APPROVE] Procesando: ${data.name}`);
+
+                if (!data.attachmentBuffer) {
+                    throw new Error("No file buffer found");
+                }
+
+                // === USAR WEBHOOK PARA URL PERMANENTE ===
                 const filesChannel = await client.channels.fetch(CHANNEL_FILES);
-                const fileMsg = await filesChannel.send({
+                
+                // Crear webhook si no existe (o reutilizarlo)
+                let webhook = await filesChannel.fetchWebhooks().then(hooks => hooks.first());
+                if (!webhook) {
+                    webhook = await filesChannel.createWebhook({
+                        name: "HyperIndex Files",
+                        avatar: client.user.displayAvatarURL()
+                    });
+                }
+
+                const fileMsg = await webhook.send({
                     content: `${data.name} — ${data.artist}`,
-                    files: [{ attachment: data.attachmentBuffer, name: data.attachmentName }]
+                    files: [{ 
+                        attachment: data.attachmentBuffer, 
+                        name: data.attachmentName 
+                    }],
+                    username: "HyperIndex Archive",
+                    avatarURL: client.user.displayAvatarURL()
                 });
 
                 const permanentUrl = fileMsg.attachments.first()?.url;
-                if (!permanentUrl) throw new Error("Could not get permanent URL");
 
+                if (!permanentUrl) {
+                    throw new Error("Failed to get permanent URL from webhook");
+                }
+
+                console.log(`[APPROVE] URL permanente obtenida: ${permanentUrl}`);
+
+                // Resto del código (GitHub) se mantiene igual
                 const OWNER = process.env.GITHUB_OWNER || "gabrinick";
                 const REPO = process.env.GITHUB_REPO || "hyperindex-gd";
                 const PATH = process.env.GITHUB_PATH || "index.json";
@@ -207,6 +233,10 @@ client.on("interactionCreate", async interaction => {
 
             } catch (error) {
                 console.error("[APPROVE ERROR]", error);
+                await interaction.followUp({
+                    content: `❌ Error approving: ${error.message}`,
+                    ephemeral: true
+                });
             }
         }
 
