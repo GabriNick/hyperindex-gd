@@ -278,20 +278,48 @@ async function sendForReview(interaction, data, title) {
     try {
         console.log(`[REVIEW] Processing: ${data.name}`);
 
+        // Descargar archivo
         const fileRes = await fetch(data.attachmentUrl);
         if (!fileRes.ok) throw new Error(`HTTP ${fileRes.status}`);
 
         data.attachmentBuffer = Buffer.from(await fileRes.arrayBuffer());
         delete data.attachmentUrl;
 
+        console.log(`[REVIEW] File downloaded (${data.attachmentBuffer.length} bytes)`);
+
+        // Consultar GDBrowser y extraer songID de forma robusta
+        console.log(`[REVIEW] Fetching level ${data.levelid} from GDBrowser...`);
         const gdbRes = await fetch(`https://gdbrowser.com/api/level/${data.levelid}`);
-        if (!gdbRes.ok) throw new Error("GDBrowser error");
+        if (!gdbRes.ok) throw new Error(`GDBrowser HTTP ${gdbRes.status}`);
 
         const level = await gdbRes.json();
-        if (!level.songID) throw new Error("No songID found");
 
-        data.songs = [Number(level.songID)];
+        // === MEJORA: Extracción robusta del songID ===
+        let songID = null;
 
+        if (level.songID) {
+            // Caso 1: Es un número directo
+            if (typeof level.songID === 'number') {
+                songID = level.songID;
+            }
+            // Caso 2: Es un string como "songID [\"Level 13\"]" o "13"
+            else if (typeof level.songID === 'string') {
+                // Extraer solo números
+                const match = level.songID.match(/\d+/);
+                if (match) {
+                    songID = parseInt(match[0], 10);
+                }
+            }
+        }
+
+        if (!songID || isNaN(songID)) {
+            throw new Error("Could not extract valid songID from GDBrowser");
+        }
+
+        data.songs = [songID];
+        console.log(`[REVIEW] Extracted songID: ${songID}`);
+
+        // Guardar para revisión
         const reviewId = Date.now().toString();
         pendingSubmissions[reviewId] = { ...data, userId: interaction.user.id };
 
@@ -311,8 +339,10 @@ async function sendForReview(interaction, data, title) {
         await interaction.editReply({ content: "✅ Submitted for review" });
 
     } catch (err) {
-        console.error("[ERROR]", err);
-        await interaction.editReply({ content: `❌ Error: ${err.message}` }).catch(() => {});
+        console.error("[ERROR] sendForReview:", err);
+        await interaction.editReply({ 
+            content: `❌ Error: ${err.message}` 
+        }).catch(() => {});
     }
 }
 
