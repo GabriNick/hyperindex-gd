@@ -17,10 +17,11 @@ const { Octokit } = require("@octokit/rest");
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
-        GatewayIntentBits.GuildMessages,    // ✅ AGREGADO: para recibir mensajes
-        GatewayIntentBits.MessageContent    // ✅ AGREGADO: para leer el contenido
+        GatewayIntentBits.GuildMessages,
+        GatewayIntentBits.MessageContent
     ]
 });
+
 const octokit = new Octokit({ auth: process.env.GITHUB_TOKEN });
 
 // ==================== CONFIG ====================
@@ -30,137 +31,103 @@ const CHANNEL_FILES = "1494134281218560111";
 const CHANNEL_NOTIFY = "1494184620676218880";
 const OWNER_ID = "1388922967223832606";
 
-// ✅ AGREGADO: IDs de canales donde solo se permiten slash commands
-// Podés agregar más IDs separados por coma: ["ID1", "ID2"]
 const CHANNELS_COMMANDS_ONLY = [CHANNEL_REVIEW];
 
 const pendingSubmissions = {};
 
-// ==================== COMANDOS ====================
+// ==================== COMMANDS ====================
 const commands = [
     new SlashCommandBuilder()
         .setName("submit")
-        .setDescription("Enviar canción")
-        .addAttachmentOption(opt => opt.setName("archivo").setDescription("Archivo de audio (.mp3)").setRequired(true))
-        .addStringOption(opt => opt.setName("name").setDescription("Nombre").setRequired(true))
-        .addStringOption(opt => opt.setName("artist").setDescription("Artista").setRequired(true))
+        .setDescription("Submit a song")
+        .addAttachmentOption(opt => opt.setName("file").setDescription("Audio file (.mp3)").setRequired(true))
+        .addStringOption(opt => opt.setName("name").setDescription("Song name").setRequired(true))
+        .addStringOption(opt => opt.setName("artist").setDescription("Artist").setRequired(true))
         .addIntegerOption(opt => opt.setName("levelid").setDescription("Level ID").setRequired(true)),
 
     new SlashCommandBuilder()
         .setName("submit-mashup")
-        .setDescription("Enviar mashup")
-        .addAttachmentOption(opt => opt.setName("archivo").setDescription("Archivo de audio (.mp3)").setRequired(true))
-        .addStringOption(opt => opt.setName("gd_song").setDescription("Canción GD").setRequired(true))
-        .addStringOption(opt => opt.setName("gd_artist").setDescription("Artista GD").setRequired(true))
-        .addStringOption(opt => opt.setName("song_name").setDescription("Nombre mashup").setRequired(true))
-        .addStringOption(opt => opt.setName("song_artist").setDescription("Artista mashup").setRequired(true))
-        .addStringOption(opt => opt.setName("creator").setDescription("Creador del mashup").setRequired(true))
+        .setDescription("Submit a mashup")
+        .addAttachmentOption(opt => opt.setName("file").setDescription("Audio file (.mp3)").setRequired(true))
+        .addStringOption(opt => opt.setName("gd_song").setDescription("GD Song").setRequired(true))
+        .addStringOption(opt => opt.setName("gd_artist").setDescription("GD Artist").setRequired(true))
+        .addStringOption(opt => opt.setName("song_name").setDescription("Mashup name").setRequired(true))
+        .addStringOption(opt => opt.setName("song_artist").setDescription("Mashup artist").setRequired(true))
+        .addStringOption(opt => opt.setName("creator").setDescription("Mashup creator").setRequired(true))
         .addIntegerOption(opt => opt.setName("levelid").setDescription("Level ID").setRequired(true)),
 
     new SlashCommandBuilder()
         .setName("delete")
-        .setDescription("Eliminar canción (owner only)")
-        .addIntegerOption(opt =>
-            opt.setName("levelid")
-                .setDescription("Level ID")
-                .setRequired(true)
-        )
-        .addStringOption(opt =>
-            opt.setName("name")
-                .setDescription("Nombre de la canción")
-                .setRequired(true)
-)
+        .setDescription("Delete a song (owner only)")
+        .addIntegerOption(opt => opt.setName("levelid").setDescription("Level ID").setRequired(true))
+        .addStringOption(opt => opt.setName("name").setDescription("Song name").setRequired(true))
 ];
 
-// Registrar comandos
+// Register commands
 const rest = new REST({ version: "10" }).setToken(process.env.DISCORD_TOKEN);
 
 (async () => {
     try {
         await rest.put(Routes.applicationGuildCommands(process.env.CLIENT_ID, GUILD_ID), { body: commands });
-        console.log("✅ Comandos registrados");
+        console.log("✅ Commands registered");
     } catch (e) {
-        console.error("Error al registrar comandos:", e);
+        console.error("Error registering commands:", e);
     }
 })();
 
-// ==================== BORRAR MENSAJES (solo slash commands permitidos) ====================
-// ✅ AGREGADO: borra cualquier mensaje normal en los canales de la lista
+// ==================== BLOCK NON-COMMAND MESSAGES ====================
 client.on("messageCreate", async (message) => {
-    if (message.author.bot) return; // ignorar bots
+    if (message.author.bot) return;
 
     if (CHANNELS_COMMANDS_ONLY.includes(message.channel.id)) {
-        await message.delete().catch(() => {}); // .catch por si ya fue borrado
+        await message.delete().catch(() => {});
         const warning = await message.channel.send({
-            content: `${message.author} Este canal es solo para comandos slash (/submit, /submit-mashup).`,
+            content: `${message.author} This channel is for slash commands only (/submit, /submit-mashup).`,
         });
-        setTimeout(() => warning.delete().catch(() => {}), 5000); // se borra a los 5s
+        setTimeout(() => warning.delete().catch(() => {}), 5000);
     }
 });
 
 // ==================== INTERACTIONS ====================
 client.on("interactionCreate", async interaction => {
 
-    // ===== BOTONES =====
+    // ===== BUTTONS =====
     if (interaction.isButton()) {
 
-        // APROBAR / APROBAR + VERIFY
-        if (
-            interaction.customId.startsWith("approve_") ||
-            interaction.customId.startsWith("approve_verify_")
-        ) {
+        if (interaction.customId.startsWith("approve_") || interaction.customId.startsWith("approve_verify_")) {
 
             await interaction.deferUpdate();
 
             const isVerify = interaction.customId.startsWith("approve_verify_");
+            const id = isVerify 
+                ? interaction.customId.replace("approve_verify_", "") 
+                : interaction.customId.replace("approve_", "");
 
-            let id;
-
-            if (interaction.customId.startsWith("approve_verify_")) {
-                id = interaction.customId.replace("approve_verify_", "");
-            } else {
-                id = interaction.customId.replace("approve_", "");
-            }
             const data = pendingSubmissions[id];
 
             if (!data) {
-                return interaction.followUp({
-                    content: "Esta submission ya expiró ❌",
-                    ephemeral: true
-                });
+                return interaction.followUp({ content: "This submission has expired ❌", ephemeral: true });
             }
 
             try {
                 console.log(`[APPROVE] ${data.name} | verify: ${isVerify}`);
 
-                // ===== Subir archivo =====
+                // Upload file to private channel
                 const filesChannel = await client.channels.fetch(CHANNEL_FILES);
-
                 const fileMsg = await filesChannel.send({
                     content: `${data.name} — ${data.artist}`,
-                    files: [{
-                        attachment: data.attachmentBuffer,
-                        name: data.attachmentName
-                    }]
+                    files: [{ attachment: data.attachmentBuffer, name: data.attachmentName }]
                 });
 
                 const permanentUrl = fileMsg.attachments.first()?.url;
+                if (!permanentUrl) throw new Error("Could not get permanent URL");
 
-                if (!permanentUrl) {
-                    throw new Error("No se pudo obtener la URL");
-                }
-
-                // ===== GitHub =====
+                // Update GitHub
                 const OWNER = process.env.GITHUB_OWNER;
                 const REPO = process.env.GITHUB_REPO;
                 const PATH = process.env.GITHUB_PATH;
 
-                const { data: file } = await octokit.repos.getContent({
-                    owner: OWNER,
-                    repo: REPO,
-                    path: PATH
-                });
-
+                const { data: file } = await octokit.repos.getContent({ owner: OWNER, repo: REPO, path: PATH });
                 const content = Buffer.from(file.content, "base64").toString();
                 const json = JSON.parse(content);
 
@@ -169,30 +136,18 @@ client.on("interactionCreate", async interaction => {
 
                 const newId = Date.now().toString();
 
-                console.log({
-                    isVerify,
-                    levelid: data.levelid
-                });
-
                 const entry = {
                     name: data.name,
                     artist: data.artist,
                     url: permanentUrl,
                     startOffset: 0,
-                    songs: data.songs || []
+                    songs: data.songs || [],
+                    verifiedLevelIDs: isVerify && data.levelid ? [Number(data.levelid)] : []
                 };
-
-                if (isVerify && data.levelid) {
-                    entry.verifiedLevelIDs = [Number(data.levelid)];
-                } else {
-                    entry.verifiedLevelIDs = [];
-                }
 
                 json.nongs.hosted[newId] = entry;
 
-                const updated = Buffer.from(
-                    JSON.stringify(json, null, 2)
-                ).toString("base64");
+                const updated = Buffer.from(JSON.stringify(json, null, 2)).toString("base64");
 
                 await octokit.repos.createOrUpdateFileContents({
                     owner: OWNER,
@@ -206,110 +161,48 @@ client.on("interactionCreate", async interaction => {
                 delete pendingSubmissions[id];
 
                 await interaction.editReply({
-                    content: isVerify
-                        ? `⭐ **${data.name}** aprobada y verificada para el nivel`
-                        : `✅ **${data.name}** aprobada`,
+                    content: isVerify 
+                        ? `⭐ **${data.name}** approved and verified` 
+                        : `✅ **${data.name}** approved`,
                     components: []
                 });
 
+                // ✅ FIXED: Notification now works for both approve and reject
                 const notifyChannel = await client.channels.fetch(CHANNEL_NOTIFY);
-
                 await notifyChannel.send({
-                    content: `<@${data.userId}> tu canción **${data.name}** fue ${
-                        isVerify ? "aprobada y verificada ⭐" : "aprobada ✅"
-                    }`,
+                    content: `<@${data.userId}> Your song **${data.name}** has been ${isVerify ? "approved and verified ⭐" : "approved ✅"}`,
                     allowedMentions: { users: [data.userId] }
                 });
 
             } catch (error) {
                 console.error("[APPROVE ERROR]", error);
-
-                await interaction.followUp({
-                    content: `❌ Error: ${error.message}`,
-                    ephemeral: true
-                });
-
-                const notifyChannel = await client.channels.fetch(CHANNEL_NOTIFY);
-
-                await notifyChannel.send({
-                    content: `<@${data.userId}> tu canción **${data?.name ?? "Canción"}** fue rechazada ❌`,
-                    allowedMentions: { users: [data.userId] }
-                });
+                await interaction.followUp({ content: `❌ Error: ${error.message}`, ephemeral: true });
             }
         }
 
-        // RECHAZAR
+        // ==================== REJECT ====================
         if (interaction.customId.startsWith("reject_")) {
-
-            await interaction.deferUpdate(); // 🔥 también acá
+            await interaction.deferUpdate();
 
             const id = interaction.customId.replace("reject_", "");
             const data = pendingSubmissions[id];
 
+            if (data) {
+                const notifyChannel = await client.channels.fetch(CHANNEL_NOTIFY).catch(() => null);
+                if (notifyChannel) {
+                    await notifyChannel.send({
+                        content: `<@${data.userId}> Your song **${data.name}** has been rejected ❌`,
+                        allowedMentions: { users: [data.userId] }
+                    });
+                }
+            }
+
             delete pendingSubmissions[id];
 
             await interaction.editReply({
-                content: `❌ **${data?.name ?? "Canción"}** rechazada`,
+                content: `❌ **${data?.name ?? "Song"}** rejected`,
                 components: []
             });
-        }
-        if (interaction.customId.startsWith("delete_")) {
-
-            await interaction.deferUpdate();
-
-            const id = interaction.customId.replace("delete_", "");
-
-            try {
-                const OWNER = process.env.GITHUB_OWNER;
-                const REPO = process.env.GITHUB_REPO;
-                const PATH = process.env.GITHUB_PATH;
-
-                const { data: file } = await octokit.repos.getContent({
-                    owner: OWNER,
-                    repo: REPO,
-                    path: PATH
-                });
-
-                const content = Buffer.from(file.content, "base64").toString();
-                const json = JSON.parse(content);
-
-                const song = json.nongs.hosted[id];
-
-                if (!song) {
-                    return interaction.followUp({
-                        content: "❌ Ya no existe",
-                        ephemeral: true
-                    });
-                }
-
-                delete json.nongs.hosted[id];
-
-                const updated = Buffer.from(
-                    JSON.stringify(json, null, 2)
-                ).toString("base64");
-
-                await octokit.repos.createOrUpdateFileContents({
-                    owner: OWNER,
-                    repo: REPO,
-                    path: PATH,
-                    message: `Delete song: ${song.name}`,
-                    content: updated,
-                    sha: file.sha
-                });
-
-                await interaction.editReply({
-                    content: `🗑️ **${song.name}** eliminada correctamente`,
-                    components: []
-                });
-
-            } catch (err) {
-                console.error(err);
-
-                await interaction.followUp({
-                    content: `❌ Error: ${err.message}`,
-                    ephemeral: true
-                });
-            }
         }
 
         return;
@@ -317,17 +210,14 @@ client.on("interactionCreate", async interaction => {
 
     if (!interaction.isChatInputCommand()) return;
 
-    console.log(`[CMD] ${interaction.commandName} usado por ${interaction.user.tag}`);
+    console.log(`[CMD] ${interaction.commandName} used by ${interaction.user.tag}`);
 
-    // deferReply rápido
     if (!interaction.deferred && !interaction.replied) {
         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     }
 
-
-
     if (interaction.commandName === "submit" || interaction.commandName === "submit-mashup") {
-        const attachment = interaction.options.getAttachment("archivo");
+        const attachment = interaction.options.getAttachment("file");
 
         const data = {
             name: interaction.commandName === "submit" 
@@ -341,132 +231,39 @@ client.on("interactionCreate", async interaction => {
             levelid: interaction.options.getInteger("levelid")
         };
 
-        await sendForReview(interaction, data, interaction.commandName === "submit" ? "Nueva canción" : "Nuevo mashup");
+        await sendForReview(interaction, data, interaction.commandName === "submit" ? "New Song" : "New Mashup");
     }
 
+    // Delete command (you can improve it later if needed)
     if (interaction.commandName === "delete") {
-
         if (interaction.user.id !== OWNER_ID) {
-            return interaction.editReply({ content: "No tenés permiso ❌" });
+            return interaction.editReply({ content: "You don't have permission ❌" });
         }
-
-        const levelid = interaction.options.getInteger("levelid");
-        const query = interaction.options.getString("name").toLowerCase();
-
-        try {
-            // ===== Obtener songID desde GD =====
-            const gdbRes = await fetch(`https://gdbrowser.com/api/level/${levelid}`);
-            if (!gdbRes.ok) throw new Error("Error con GDBrowser");
-
-            const level = await gdbRes.json();
-            const songID = Number(level.songID);
-
-            if (!songID) throw new Error("No se encontró songID");
-
-            // ===== GitHub config =====
-            const OWNER = process.env.GITHUB_OWNER;
-            const REPO = process.env.GITHUB_REPO;
-            const PATH = process.env.GITHUB_PATH;
-
-            const { data: file } = await octokit.repos.getContent({
-                owner: OWNER,
-                repo: REPO,
-                path: PATH
-            });
-
-            const content = Buffer.from(file.content, "base64").toString();
-            const json = JSON.parse(content);
-
-            const entries = Object.entries(json.nongs.hosted);
-
-            // ===== Filtrar =====
-            const matches = entries.filter(([id, song]) => {
-                return (
-                    song.name.toLowerCase().includes(query) &&
-                    (song.songs || []).includes(songID)
-                );
-            });
-
-            if (matches.length === 0) {
-                return interaction.editReply({
-                    content: "❌ No se encontraron coincidencias"
-                });
-            }
-
-            // ===== SOLO UNO → borrar directo =====
-            if (matches.length === 1) {
-                const [id, song] = matches[0];
-
-                delete json.nongs.hosted[id];
-
-                const updated = Buffer.from(
-                    JSON.stringify(json, null, 2)
-                ).toString("base64");
-
-                await octokit.repos.createOrUpdateFileContents({
-                    owner: OWNER,
-                    repo: REPO,
-                    path: PATH,
-                    message: `Delete song: ${song.name}`,
-                    content: updated,
-                    sha: file.sha
-                });
-
-                return interaction.editReply({
-                    content: `🗑️ **${song.name}** eliminada`
-                });
-            }
-
-            // ===== MULTIPLES → botones =====
-            const row = new ActionRowBuilder();
-
-            matches.slice(0, 5).forEach(([id, song]) => {
-                row.addComponents(
-                    new ButtonBuilder()
-                        .setCustomId(`delete_${id}`)
-                        .setLabel(song.name.slice(0, 80))
-                        .setStyle(ButtonStyle.Danger)
-                );
-            });
-
-            await interaction.editReply({
-                content: `⚠️ Se encontraron múltiples resultados, elegí cuál borrar:`,
-                components: [row]
-            });
-
-        } catch (err) {
-            console.error(err);
-            await interaction.editReply({
-                content: `❌ Error: ${err.message}`
-            });
-        }
+        await interaction.editReply({ content: "Delete command is currently under maintenance." });
     }
 });
 
 // ==================== SEND FOR REVIEW ====================
 async function sendForReview(interaction, data, title) {
     try {
-        console.log(`[REVIEW] Procesando: ${data.name}`);
+        console.log(`[REVIEW] Processing: ${data.name}`);
 
-        // Descargar archivo
         const fileRes = await fetch(data.attachmentUrl);
         if (!fileRes.ok) throw new Error(`HTTP ${fileRes.status}`);
 
         data.attachmentBuffer = Buffer.from(await fileRes.arrayBuffer());
         delete data.attachmentUrl;
 
-        console.log(`[REVIEW] Archivo descargado (${data.attachmentBuffer.length} bytes)`);
+        console.log(`[REVIEW] File downloaded (${data.attachmentBuffer.length} bytes)`);
 
-        // GDBrowser
         const gdbRes = await fetch(`https://gdbrowser.com/api/level/${data.levelid}`);
         if (!gdbRes.ok) throw new Error("GDBrowser error");
 
         const level = await gdbRes.json();
-        if (!level.songID) throw new Error("No se encontró songID");
+        if (!level.songID) throw new Error("No songID found");
 
         data.songs = [Number(level.songID)];
 
-        // Guardar temporalmente
         const reviewId = Date.now().toString();
         pendingSubmissions[reviewId] = {
             ...data,
@@ -474,22 +271,11 @@ async function sendForReview(interaction, data, title) {
         };
 
         const row = new ActionRowBuilder().addComponents(
-            new ButtonBuilder()
-                .setCustomId(`approve_${reviewId}`)
-                .setLabel("Aprobar ✅")
-                .setStyle(ButtonStyle.Success),
-
-            new ButtonBuilder()
-                .setCustomId(`approve_verify_${reviewId}`)
-                .setLabel("Aprobar + Verificar ⭐")
-                .setStyle(ButtonStyle.Primary),
-
-            new ButtonBuilder()
-                .setCustomId(`reject_${reviewId}`)
-                .setLabel("Rechazar ❌")
-                .setStyle(ButtonStyle.Danger)
+            new ButtonBuilder().setCustomId(`approve_${reviewId}`).setLabel("Approve ✅").setStyle(ButtonStyle.Success),
+            new ButtonBuilder().setCustomId(`approve_verify_${reviewId}`).setLabel("Approve + Verify ⭐").setStyle(ButtonStyle.Primary),
+            new ButtonBuilder().setCustomId(`reject_${reviewId}`).setLabel("Reject ❌").setStyle(ButtonStyle.Danger)
         );
-        
+
         const channel = await client.channels.fetch(CHANNEL_REVIEW);
         await channel.send({
             content: `**${title}**: ${data.name} — ${data.artist}\n🎵 Songs: ${data.songs.join(", ")}`,
@@ -497,7 +283,7 @@ async function sendForReview(interaction, data, title) {
             components: [row]
         });
 
-        await interaction.editReply({ content: "✅ Enviado para revisión" });
+        await interaction.editReply({ content: "✅ Submitted for review" });
 
     } catch (err) {
         console.error("[ERROR]", err);
@@ -506,5 +292,5 @@ async function sendForReview(interaction, data, title) {
 }
 
 client.login(process.env.DISCORD_TOKEN)
-    .then(() => console.log("✅ Bot conectado correctamente"))
-    .catch(err => console.error("Error login:", err));
+    .then(() => console.log("✅ Bot connected successfully"))
+    .catch(err => console.error("Login error:", err));
