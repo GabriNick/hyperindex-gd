@@ -309,6 +309,18 @@
         "verifiedLevelIDs": [
           110991117
         ]
+      },
+      "1776395109598": {
+        "name": "SR20DET",
+        "artist": "Blksmiith",
+        "url": "https://cdn.discordapp.com/attachments/1494134281218560111/1494534152203141151/1216127.mp3?ex=69e2f4e4&is=69e1a364&hm=4780415f365c740c4945818879a1e0516ae02681e5175a4ddbd86c95c3e77ba1&",
+        "startOffset": 0,
+        "songs": [
+          1216127
+        ],
+        "verifiedLevelIDs": [
+          114283297
+        ]
       }
     },
     "youtube": {}
