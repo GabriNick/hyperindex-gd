@@ -345,6 +345,18 @@
         "verifiedLevelIDs": [
           120012581
         ]
+      },
+      "1776395399619": {
+        "name": "My Name Is Skrillex (Cethic Remix)",
+        "artist": "Cethic",
+        "url": "https://cdn.discordapp.com/attachments/1494134281218560111/1494535368496779304/Cethic_-_My_Name_Is_Skrillex_Remix_jW59gGirHZI.mp3?ex=69e2f606&is=69e1a486&hm=8be0da5f427a8b26732f5b60417936973154c339066247f0f48859a0b2058489&",
+        "startOffset": 0,
+        "songs": [
+          1115842
+        ],
+        "verifiedLevelIDs": [
+          78574504
+        ]
       }
     },
     "youtube": {}
