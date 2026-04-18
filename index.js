@@ -27,6 +27,43 @@ const client = new Client({
 
 const octokit = new Octokit({ auth: process.env.GITHUB_TOKEN });
 
+// ==================== GD OFFICIAL SONGS ====================
+const GD_OFFICIAL_SONGS = {
+    1:  "Stereo Madness",
+    2:  "Back On Track",
+    3:  "Polargeist",
+    4:  "Dry Out",
+    5:  "Base After Base",
+    6:  "Can't Let Go",
+    7:  "Jumper",
+    8:  "Time Machine",
+    9:  "Cycles",
+    10: "xStep",
+    11: "Clutterfunk",
+    12: "Theory of Everything",
+    13: "Electroman Adventures",
+    14: "Clubstep",
+    15: "Electrodynamix",
+    16: "Hexagon Force",
+    17: "Blast Processing",
+    18: "Theory of Everything 2",
+    19: "Geometrical Dominator",
+    20: "Deadlocked",
+    21: "Fingerdash",
+    22: "Dash"
+};
+
+// Si el songID está en el rango 1-22, es una canción oficial:
+// - En el mensaje de review se muestra el nombre real
+// - En el index.json se guarda como negativo (ej: 13 → -13)
+function resolveOfficialSong(songId) {
+    const num = Number(songId);
+    if (GD_OFFICIAL_SONGS[num]) {
+        return { isOfficial: true, name: GD_OFFICIAL_SONGS[num], indexId: -num };
+    }
+    return { isOfficial: false, name: String(songId), indexId: num };
+}
+
 // ==================== CONFIG ====================
 const GUILD_ID = "1493493321149190174";
 
@@ -471,7 +508,13 @@ async function sendForReview(interaction, data, title) {
         const level = await gdbRes.json();
         if (!level.songID) throw new Error("No songID found");
 
-        data.songs = [Number(level.songID)];
+        const resolved = resolveOfficialSong(level.songID);
+        // En el index.json: negativo si es oficial (ej: -13), positivo si es custom
+        data.songs = [resolved.indexId];
+        // Para mostrar en el mensaje de review
+        const songDisplay = resolved.isOfficial
+            ? `${resolved.name} (official)`
+            : `ID ${resolved.indexId}`;
 
         const reviewId = Date.now().toString();
         pendingSubmissions[reviewId] = { ...data, userId: interaction.user.id };
@@ -484,7 +527,7 @@ async function sendForReview(interaction, data, title) {
 
         const channel = await client.channels.fetch(CHANNEL_REVIEW);
         await channel.send({
-            content: `**${title}**: ${data.name} — ${data.artist}\n🎵 Songs: ${data.songs.join(", ")}`,
+            content: `**${title}**: ${data.name} — ${data.artist}\n🎵 Songs: ${songDisplay}`,
             files: [{ attachment: data.attachmentBuffer, name: data.attachmentName }],
             components: [row]
         });
