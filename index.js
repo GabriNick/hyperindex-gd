@@ -100,7 +100,7 @@ const commands = [
 
     new SlashCommandBuilder()
         .setName("delete")
-        .setDescription("Delete a song (owner only)")
+        .setDescription("Delete a song (OWNER ONLY)")
         .addIntegerOption(opt => opt.setName("levelid").setDescription("Level ID").setRequired(true))
         .addStringOption(opt => opt.setName("name").setDescription("Song name").setRequired(true)),
 
