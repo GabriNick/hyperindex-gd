@@ -113,10 +113,7 @@ client.on("interactionCreate", async interaction => {
             // ...
         }
 
-<<<<<<< HEAD
-=======
         // REJECT
->>>>>>> 94cbec5bca7211d8d8b7e510e99a4ef7813237ba
         if (interaction.customId.startsWith("reject_")) {
             const id = interaction.customId.replace("reject_", "");
             const data = pendingSubmissions[id];
