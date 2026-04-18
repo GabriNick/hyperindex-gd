@@ -190,7 +190,7 @@ client.on("interactionCreate", async interaction => {
                     artist: data.artist,
                     url: fileUrl,
                     songs: data.songs,
-                    verified: isVerify
+                    verifiedLevelIDs: isVerify ? [data.levelid] : []
                 };
 
                 // 4. Guardar en GitHub
