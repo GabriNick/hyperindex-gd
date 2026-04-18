@@ -100,7 +100,7 @@ const commands = [
 
     new SlashCommandBuilder()
         .setName("delete")
-        .setDescription("Delete a song (OWNER ONLY)")
+        .setDescription("Delete a song (owner only)")
         .addIntegerOption(opt => opt.setName("levelid").setDescription("Level ID").setRequired(true))
         .addStringOption(opt => opt.setName("name").setDescription("Song name").setRequired(true)),
 
@@ -349,14 +349,25 @@ client.on("interactionCreate", async interaction => {
                 return interaction.editReply({ content: "❌ No songs found in database." });
             }
 
-            // Buscar la entrada por levelid y nombre
+            // Buscar la entrada por levelid y nombre (case insensitive)
+            // La key tiene formato {levelid}_{timestamp}, ej: "111554733_1776475049162"
             const key = Object.keys(json.nongs.hosted).find(k => {
                 const song = json.nongs.hosted[k];
                 return k.startsWith(`${levelId}_`) && song.name.toLowerCase() === songName.toLowerCase();
             });
 
             if (!key) {
-                return interaction.editReply({ content: `❌ Song **${songName}** with Level ID **${levelId}** not found.` });
+                // Mostrar lista de canciones con ese levelID para ayudar al usuario
+                const matches = Object.entries(json.nongs.hosted)
+                    .filter(([k]) => k.startsWith(`${levelId}_`))
+                    .map(([, s]) => `• **${s.name}** — ${s.artist}`);
+
+                if (matches.length > 0) {
+                    return interaction.editReply({
+                        content: `❌ Song **${songName}** not found for Level ID **${levelId}**.\n\nSongs with that Level ID:\n${matches.join("\n")}`
+                    });
+                }
+                return interaction.editReply({ content: `❌ No songs found for Level ID **${levelId}**.` });
             }
 
             const deleted = json.nongs.hosted[key];
