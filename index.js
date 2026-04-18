@@ -517,9 +517,19 @@ async function sendForReview(interaction, data, title) {
         if (!gdbRes.ok) throw new Error("GDBrowser error");
 
         const level = await gdbRes.json();
-        if (!level.songID) throw new Error("No songID found");
 
-        const resolved = resolveOfficialSong(level.songID);
+        // GDBrowser devuelve:
+        // - officialSong: número del nivel si es canción oficial (1-22), 0 si es custom
+        // - customSong: ID de Newgrounds si es custom, 0 si es oficial
+        let resolved;
+        if (level.officialSong && level.officialSong > 0) {
+            resolved = resolveOfficialSong(level.officialSong);
+        } else if (level.customSong && level.customSong > 0) {
+            resolved = { isOfficial: false, name: String(level.customSong), indexId: Number(level.customSong) };
+        } else {
+            throw new Error("Could not determine song for this level");
+        }
+
         // En el index.json: negativo si es oficial (ej: -13), positivo si es custom
         data.songs = [resolved.indexId];
         // Para mostrar en el mensaje de review
