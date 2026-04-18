@@ -112,7 +112,7 @@ client.on("interactionCreate", async interaction => {
     // ==================== BUTTONS ====================
     if (interaction.isButton()) {
 
-        // REJECT → Abre el modal (SIN deferUpdate antes)
+        // REJECT
         if (interaction.customId.startsWith("reject_")) {
             const id = interaction.customId.replace("reject_", "");
             const data = pendingSubmissions[id];
