@@ -100,24 +100,104 @@ client.on("messageCreate", async (message) => {
 
 // ==================== INTERACTIONS ====================
 client.on("interactionCreate", async interaction => {
+
+    // ==================== BUTTONS ====================
     if (interaction.isButton()) {
-        await interaction.deferUpdate().catch(() => {});
 
+        // APPROVE / APPROVE + VERIFY
+        // FIX: deferUpdate va acá adentro, no afuera, para no romper el reject modal
         if (interaction.customId.startsWith("approve_") || interaction.customId.startsWith("approve_verify_")) {
-            const isVerify = interaction.customId.startsWith("approve_verify_");
-            const id = isVerify ? interaction.customId.replace("approve_verify_", "") : interaction.customId.replace("approve_", "");
-            const data = pendingSubmissions[id];
-            if (!data) return;
+            await interaction.deferUpdate().catch(() => {});
 
-            // Tu lógica de approve (puedes mejorarla después con webhook)
-            // ...
+            const isVerify = interaction.customId.startsWith("approve_verify_");
+            const id = isVerify
+                ? interaction.customId.replace("approve_verify_", "")
+                : interaction.customId.replace("approve_", "");
+            const data = pendingSubmissions[id];
+
+            if (!data) {
+                await interaction.editReply({ content: "❌ Submission not found (bot may have restarted).", components: [] });
+                return;
+            }
+
+            try {
+                const OWNER = process.env.GITHUB_OWNER || "gabrinick";
+                const REPO = process.env.GITHUB_REPO || "hyperindex-gd";
+                const PATH = process.env.GITHUB_PATH || "index.json";
+
+                // 1. Subir el archivo al canal de archivos via webhook
+                const filesChannel = await client.channels.fetch(CHANNEL_FILES);
+                let webhook = (await filesChannel.fetchWebhooks()).first();
+                if (!webhook) {
+                    webhook = await filesChannel.createWebhook({ name: "HyperIndex Archive" });
+                }
+
+                const uploadedMsg = await webhook.send({
+                    files: [{ attachment: data.attachmentBuffer, name: data.attachmentName }]
+                });
+
+                const fileUrl = uploadedMsg.attachments.first()?.url;
+                if (!fileUrl) throw new Error("Failed to get file URL after upload");
+
+                // 2. Leer el index.json de GitHub
+                const { data: file } = await octokit.repos.getContent({ owner: OWNER, repo: REPO, path: PATH });
+                const json = JSON.parse(Buffer.from(file.content, "base64").toString());
+
+                if (!json.nongs) json.nongs = {};
+                if (!json.nongs.hosted) json.nongs.hosted = {};
+
+                // 3. Agregar la entrada
+                const songKey = `${data.levelid}_${Date.now()}`;
+                json.nongs.hosted[songKey] = {
+                    name: data.name,
+                    artist: data.artist,
+                    url: fileUrl,
+                    songs: data.songs,
+                    verified: isVerify
+                };
+
+                // 4. Guardar en GitHub
+                await octokit.repos.createOrUpdateFileContents({
+                    owner: OWNER,
+                    repo: REPO,
+                    path: PATH,
+                    message: `Add song: ${data.name}`,
+                    content: Buffer.from(JSON.stringify(json, null, 2)).toString("base64"),
+                    sha: file.sha
+                });
+
+                // 5. Notificar al usuario
+                const notifyChannel = await client.channels.fetch(CHANNEL_NOTIFY).catch(() => null);
+                if (notifyChannel) {
+                    await notifyChannel.send({
+                        content: `<@${data.userId}> Your song **${data.name}** has been approved ${isVerify ? "⭐ and verified!" : "✅!"}`,
+                        allowedMentions: { users: [data.userId] }
+                    });
+                }
+
+                // 6. Limpiar y editar el mensaje de review
+                delete pendingSubmissions[id];
+                await interaction.editReply({
+                    content: `${isVerify ? "⭐ Approved + Verified" : "✅ Approved"}: **${data.name}** — ${data.artist}`,
+                    components: []
+                });
+
+            } catch (err) {
+                console.error("[APPROVE ERROR]", err);
+                await interaction.editReply({ content: `❌ Error approving: ${err.message}`, components: [] });
+            }
+            return;
         }
 
         // REJECT
+        // FIX: NO hacemos deferUpdate acá porque necesitamos mostrar un modal
         if (interaction.customId.startsWith("reject_")) {
             const id = interaction.customId.replace("reject_", "");
             const data = pendingSubmissions[id];
-            if (!data) return;
+            if (!data) {
+                await interaction.reply({ content: "❌ Submission not found (bot may have restarted).", ephemeral: true });
+                return;
+            }
 
             const modal = new ModalBuilder()
                 .setCustomId(`reject_modal_${id}`)
@@ -132,18 +212,24 @@ client.on("interactionCreate", async interaction => {
 
             modal.addComponents(new ActionRowBuilder().addComponents(reasonInput));
             await interaction.showModal(modal);
+            return;
         }
-        return;
     }
 
+    // ==================== MODAL SUBMIT (REJECT) ====================
     if (interaction.isModalSubmit() && interaction.customId.startsWith("reject_modal_")) {
         const id = interaction.customId.replace("reject_modal_", "");
         const data = pendingSubmissions[id];
-        if (!data) return;
+
+        if (!data) {
+            await interaction.reply({ content: "❌ Submission not found (bot may have restarted).", ephemeral: true });
+            return;
+        }
 
         const reason = interaction.fields.getTextInputValue("reject_reason");
 
-        await interaction.deferUpdate();
+        // FIX: modales usan deferReply, no deferUpdate
+        await interaction.deferReply({ ephemeral: true });
 
         const notifyChannel = await client.channels.fetch(CHANNEL_NOTIFY).catch(() => null);
         if (notifyChannel) {
@@ -153,12 +239,28 @@ client.on("interactionCreate", async interaction => {
             });
         }
 
+        // Editar el mensaje original de review para sacar los botones
+        try {
+            const reviewChannel = await client.channels.fetch(CHANNEL_REVIEW);
+            // Buscar el mensaje que tiene los botones de esta submission
+            const messages = await reviewChannel.messages.fetch({ limit: 50 });
+            const reviewMsg = messages.find(m =>
+                m.components.length > 0 &&
+                m.components[0].components.some(c => c.customId === `reject_${id}`)
+            );
+            if (reviewMsg) {
+                await reviewMsg.edit({
+                    content: `${reviewMsg.content}\n\n❌ **Rejected** — Reason: ${reason}`,
+                    components: []
+                });
+            }
+        } catch (e) {
+            console.error("[REJECT] Could not edit review message:", e);
+        }
+
         delete pendingSubmissions[id];
 
-        await interaction.editReply({
-            content: `❌ **${data.name}** rejected\nReason: ${reason}`,
-            components: []
-        });
+        await interaction.editReply({ content: `❌ **${data.name}** rejected.\nReason: ${reason}` });
         return;
     }
 
@@ -168,11 +270,12 @@ client.on("interactionCreate", async interaction => {
         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     }
 
+    // ==================== SUBMIT / SUBMIT-MASHUP ====================
     if (interaction.commandName === "submit" || interaction.commandName === "submit-mashup") {
         const attachment = interaction.options.getAttachment("file");
 
         const data = {
-            name: interaction.commandName === "submit" 
+            name: interaction.commandName === "submit"
                 ? interaction.options.getString("name")
                 : `${interaction.options.getString("gd_song")} X ${interaction.options.getString("song_artist")} - ${interaction.options.getString("song_name")}`,
             artist: interaction.commandName === "submit"
@@ -184,18 +287,18 @@ client.on("interactionCreate", async interaction => {
         };
 
         await sendForReview(interaction, data, interaction.commandName === "submit" ? "New Song" : "New Mashup");
+        return;
     }
 
-    // ==================== FIX EXPIRED LINKS (COMPLETO) ====================
-    if (interaction.commandName === "fix-expired-links") {
+    // ==================== DELETE ====================
+    // FIX: este comando no existía para nada, ahora sí
+    if (interaction.commandName === "delete") {
         if (interaction.user.id !== OWNER_ID) {
             return interaction.editReply({ content: "You don't have permission ❌" });
         }
 
-        await interaction.editReply("🔍 Starting full check and repair of expired links...");
-
-        let checked = 0;
-        let fixed = 0;
+        const levelId = interaction.options.getInteger("levelid");
+        const songName = interaction.options.getString("name");
 
         try {
             const OWNER = process.env.GITHUB_OWNER || "gabrinick";
@@ -206,49 +309,150 @@ client.on("interactionCreate", async interaction => {
             const json = JSON.parse(Buffer.from(file.content, "base64").toString());
 
             if (!json.nongs?.hosted) {
-                return interaction.editReply("No songs found in database.");
+                return interaction.editReply({ content: "❌ No songs found in database." });
             }
 
-            const songs = json.nongs.hosted;
-            const filesChannel = await client.channels.fetch(CHANNEL_FILES);
+            // Buscar la entrada por levelid y nombre
+            const key = Object.keys(json.nongs.hosted).find(k => {
+                const song = json.nongs.hosted[k];
+                return k.startsWith(`${levelId}_`) && song.name.toLowerCase() === songName.toLowerCase();
+            });
 
-            // Crear webhook si no existe
+            if (!key) {
+                return interaction.editReply({ content: `❌ Song **${songName}** with Level ID **${levelId}** not found.` });
+            }
+
+            const deleted = json.nongs.hosted[key];
+            delete json.nongs.hosted[key];
+
+            await octokit.repos.createOrUpdateFileContents({
+                owner: OWNER,
+                repo: REPO,
+                path: PATH,
+                message: `Delete song: ${deleted.name}`,
+                content: Buffer.from(JSON.stringify(json, null, 2)).toString("base64"),
+                sha: file.sha
+            });
+
+            await interaction.editReply({ content: `🗑️ **${deleted.name}** by ${deleted.artist} has been deleted from the database.` });
+
+        } catch (err) {
+            console.error("[DELETE ERROR]", err);
+            await interaction.editReply({ content: `❌ Error deleting: ${err.message}` });
+        }
+        return;
+    }
+
+    // ==================== FIX EXPIRED LINKS ====================
+    // FIX: ahora realmente repara los links buscando el archivo en CHANNEL_FILES
+    if (interaction.commandName === "fix-expired-links") {
+        if (interaction.user.id !== OWNER_ID) {
+            return interaction.editReply({ content: "You don't have permission ❌" });
+        }
+
+        await interaction.editReply({ content: "🔍 Starting full check and repair of expired links..." });
+
+        let checked = 0;
+        let fixed = 0;
+        let failed = 0;
+
+        try {
+            const OWNER = process.env.GITHUB_OWNER || "gabrinick";
+            const REPO = process.env.GITHUB_REPO || "hyperindex-gd";
+            const PATH = process.env.GITHUB_PATH || "index.json";
+
+            const { data: file } = await octokit.repos.getContent({ owner: OWNER, repo: REPO, path: PATH });
+            const json = JSON.parse(Buffer.from(file.content, "base64").toString());
+
+            if (!json.nongs?.hosted) {
+                return interaction.editReply({ content: "No songs found in database." });
+            }
+
+            // Cargar todos los mensajes del canal de archivos para buscar los archivos originales
+            const filesChannel = await client.channels.fetch(CHANNEL_FILES);
             let webhook = (await filesChannel.fetchWebhooks()).first();
             if (!webhook) {
                 webhook = await filesChannel.createWebhook({ name: "HyperIndex Archive" });
             }
 
-            for (const [songId, song] of Object.entries(songs)) {
+            // Traer todos los mensajes del canal de archivos (hasta 500)
+            let allMessages = [];
+            let lastId = null;
+            while (true) {
+                const batch = await filesChannel.messages.fetch({ limit: 100, ...(lastId ? { before: lastId } : {}) });
+                if (batch.size === 0) break;
+                allMessages = allMessages.concat([...batch.values()]);
+                lastId = batch.last().id;
+                if (batch.size < 100) break;
+            }
+
+            let changed = false;
+
+            for (const [songKey, song] of Object.entries(json.nongs.hosted)) {
                 if (!song.url) continue;
                 checked++;
 
+                // Verificar si el link está vivo
+                let isAlive = false;
                 try {
                     const res = await fetch(song.url, { method: "HEAD" });
-                    if (res.ok) continue; // Link sigue vivo
+                    isAlive = res.ok;
+                } catch {
+                    isAlive = false;
+                }
 
-                    console.log(`[FIX] Expired link found: ${song.name}`);
+                if (isAlive) continue;
 
-                    // Intentar reparar (re-subir usando webhook)
-                    // Nota: Esta parte es limitada porque no tenemos el archivo original guardado.
-                    // Por ahora solo marcamos como fixed y avisamos.
+                console.log(`[FIX] Dead link found: ${song.name} — searching in archive...`);
 
+                // Buscar en los mensajes del canal de archivos un archivo con el mismo nombre
+                const matchingMsg = allMessages.find(msg =>
+                    msg.attachments.size > 0 &&
+                    msg.attachments.some(att =>
+                        att.name && song.name &&
+                        att.name.toLowerCase().includes(song.name.toLowerCase().split(" ")[0])
+                    )
+                );
+
+                if (matchingMsg) {
+                    const newUrl = matchingMsg.attachments.first().url;
+                    json.nongs.hosted[songKey].url = newUrl;
                     fixed++;
-
-                } catch (e) {
-                    console.log(`[FIX] Dead link: ${song.name}`);
-                    fixed++;
+                    changed = true;
+                    console.log(`[FIX] Repaired: ${song.name} → ${newUrl}`);
+                } else {
+                    // No encontramos el archivo: re-subir no es posible sin el original
+                    failed++;
+                    console.log(`[FIX] Could not repair: ${song.name} — file not found in archive`);
                 }
             }
 
-            await interaction.editReply(`✅ Check & Repair completed!\n\n` +
-                `Total songs checked: **${checked}**\n` +
-                `Expired links found: **${fixed}**\n\n` +
-                `Full auto-reupload is limited because original files are not stored. We recommend re-submitting expired songs.`);
+            // Guardar cambios en GitHub si hubo reparaciones
+            if (changed) {
+                await octokit.repos.createOrUpdateFileContents({
+                    owner: OWNER,
+                    repo: REPO,
+                    path: PATH,
+                    message: `Fix expired links (${fixed} fixed)`,
+                    content: Buffer.from(JSON.stringify(json, null, 2)).toString("base64"),
+                    sha: file.sha
+                });
+            }
+
+            await interaction.editReply({
+                content:
+                    `✅ Check & Repair completed!\n\n` +
+                    `Songs checked: **${checked}**\n` +
+                    `Links repaired: **${fixed}**\n` +
+                    `Could not repair (file not in archive): **${failed}**` +
+                    (failed > 0 ? `\n\n⚠️ Songs that could not be repaired need to be re-submitted manually.` : "")
+            });
 
         } catch (err) {
-            console.error(err);
-            await interaction.editReply(`❌ Error during repair: ${err.message}`);
+            console.error("[FIX ERROR]", err);
+            await interaction.editReply({ content: `❌ Error during repair: ${err.message}` });
         }
+        return;
     }
 });
 
