@@ -26,6 +26,46 @@ const client = new Client({
 });
 
 const octokit = new Octokit({ auth: process.env.GITHUB_TOKEN });
+const axios = require("axios");
+const crypto = require("crypto");
+
+// ==================== BACKBLAZE B2 ====================
+async function uploadToB2(buffer, fileName) {
+    const keyId     = process.env.B2_KEY_ID;
+    const appKey    = process.env.B2_APP_KEY;
+    const bucketId  = process.env.B2_BUCKET_ID;
+    const bucketName = process.env.B2_BUCKET_NAME;
+
+    // 1. Autorizar cuenta
+    const authRes = await axios.get("https://api.backblazeb2.com/b2api/v2/b2_authorize_account", {
+        auth: { username: keyId, password: appKey }
+    });
+    const { authorizationToken, apiUrl, downloadUrl } = authRes.data;
+
+    // 2. Obtener URL de upload
+    const uploadUrlRes = await axios.post(
+        `${apiUrl}/b2api/v2/b2_get_upload_url`,
+        { bucketId },
+        { headers: { Authorization: authorizationToken } }
+    );
+    const { uploadUrl, authorizationToken: uploadToken } = uploadUrlRes.data;
+
+    // 3. Subir el archivo
+    const sha1 = crypto.createHash("sha1").update(buffer).digest("hex");
+    await axios.post(uploadUrl, buffer, {
+        headers: {
+            Authorization: uploadToken,
+            "X-Bz-File-Name": encodeURIComponent(fileName),
+            "Content-Type": "audio/mpeg",
+            "Content-Length": buffer.length,
+            "X-Bz-Content-Sha1": sha1
+        },
+        maxBodyLength: Infinity
+    });
+
+    // 4. Devolver URL pública permanente
+    return `${downloadUrl}/file/${bucketName}/${encodeURIComponent(fileName)}`;
+}
 
 // ==================== GD OFFICIAL SONGS ====================
 const GD_OFFICIAL_SONGS = {
@@ -162,19 +202,8 @@ client.on("interactionCreate", async interaction => {
                 const REPO = process.env.GITHUB_REPO || "hyperindex-gd";
                 const PATH = process.env.GITHUB_PATH || "index.json";
 
-                // 1. Subir el archivo al canal de archivos via webhook
-                const filesChannel = await client.channels.fetch(CHANNEL_FILES);
-                let webhook = (await filesChannel.fetchWebhooks()).first();
-                if (!webhook) {
-                    webhook = await filesChannel.createWebhook({ name: "HyperIndex Archive" });
-                }
-
-                const uploadedMsg = await webhook.send({
-                    files: [{ attachment: data.attachmentBuffer, name: data.attachmentName }]
-                });
-
-                const fileUrl = uploadedMsg.attachments.first()?.url;
-                if (!fileUrl) throw new Error("Failed to get file URL after upload");
+                // 1. Subir el archivo a Backblaze B2 (URL permanente, no expira)
+                const fileUrl = await uploadToB2(data.attachmentBuffer, data.attachmentName);
 
                 // 2. Leer el index.json de GitHub
                 const { data: file } = await octokit.repos.getContent({ owner: OWNER, repo: REPO, path: PATH });
@@ -416,31 +445,14 @@ client.on("interactionCreate", async interaction => {
                 return interaction.editReply({ content: "No songs found in database." });
             }
 
-            // Cargar todos los mensajes del canal de archivos para buscar los archivos originales
-            const filesChannel = await client.channels.fetch(CHANNEL_FILES);
-            let webhook = (await filesChannel.fetchWebhooks()).first();
-            if (!webhook) {
-                webhook = await filesChannel.createWebhook({ name: "HyperIndex Archive" });
-            }
+            // Verificar cada link — los nuevos están en B2 y no expiran,
+            // pero chequeamos por si quedan entradas viejas de Discord
+            const deadSongs = [];
 
-            // Traer todos los mensajes del canal de archivos (hasta 500)
-            let allMessages = [];
-            let lastId = null;
-            while (true) {
-                const batch = await filesChannel.messages.fetch({ limit: 100, ...(lastId ? { before: lastId } : {}) });
-                if (batch.size === 0) break;
-                allMessages = allMessages.concat([...batch.values()]);
-                lastId = batch.last().id;
-                if (batch.size < 100) break;
-            }
-
-            let changed = false;
-
-            for (const [songKey, song] of Object.entries(json.nongs.hosted)) {
+            for (const [, song] of Object.entries(json.nongs.hosted)) {
                 if (!song.url) continue;
                 checked++;
 
-                // Verificar si el link está vivo
                 let isAlive = false;
                 try {
                     const res = await fetch(song.url, { method: "HEAD" });
@@ -449,51 +461,24 @@ client.on("interactionCreate", async interaction => {
                     isAlive = false;
                 }
 
-                if (isAlive) continue;
-
-                console.log(`[FIX] Dead link found: ${song.name} — searching in archive...`);
-
-                // Buscar en los mensajes del canal de archivos un archivo con el mismo nombre
-                const matchingMsg = allMessages.find(msg =>
-                    msg.attachments.size > 0 &&
-                    msg.attachments.some(att =>
-                        att.name && song.name &&
-                        att.name.toLowerCase().includes(song.name.toLowerCase().split(" ")[0])
-                    )
-                );
-
-                if (matchingMsg) {
-                    const newUrl = matchingMsg.attachments.first().url;
-                    json.nongs.hosted[songKey].url = newUrl;
-                    fixed++;
-                    changed = true;
-                    console.log(`[FIX] Repaired: ${song.name} → ${newUrl}`);
-                } else {
-                    // No encontramos el archivo: re-subir no es posible sin el original
+                if (!isAlive) {
                     failed++;
-                    console.log(`[FIX] Could not repair: ${song.name} — file not found in archive`);
+                    deadSongs.push(`• **${song.name}** — ${song.artist}`);
+                    console.log(`[FIX] Dead link: ${song.name}`);
                 }
             }
 
-            // Guardar cambios en GitHub si hubo reparaciones
-            if (changed) {
-                await octokit.repos.createOrUpdateFileContents({
-                    owner: OWNER,
-                    repo: REPO,
-                    path: PATH,
-                    message: `Fix expired links (${fixed} fixed)`,
-                    content: Buffer.from(JSON.stringify(json, null, 2)).toString("base64"),
-                    sha: file.sha
-                });
-            }
+            const deadList = deadSongs.length > 0
+                ? `\n\nDead links (need re-submit):\n${deadSongs.join("\n")}`
+                : "";
 
             await interaction.editReply({
                 content:
-                    `✅ Check & Repair completed!\n\n` +
+                    `✅ Check completed!\n\n` +
                     `Songs checked: **${checked}**\n` +
-                    `Links repaired: **${fixed}**\n` +
-                    `Could not repair (file not in archive): **${failed}**` +
-                    (failed > 0 ? `\n\n⚠️ Songs that could not be repaired need to be re-submitted manually.` : "")
+                    `Dead links found: **${failed}**` +
+                    deadList +
+                    (failed > 0 ? `\n\n⚠️ These songs need to be re-submitted to get a permanent B2 link.` : "\n\n🎉 All links are alive!")
             });
 
         } catch (err) {
