@@ -16,6 +16,7 @@ const {
 } = require("discord.js");
 
 const { Octokit } = require("@octokit/rest");
+const fs = require("fs");
 
 const client = new Client({
     intents: [
@@ -28,6 +29,37 @@ const client = new Client({
 const octokit = new Octokit({ auth: process.env.GITHUB_TOKEN });
 const axios   = require("axios");
 const crypto  = require("crypto");
+
+// ==================== PERSISTENCIA DE PENDING SUBMISSIONS ====================
+const PENDING_FILE = "./pendingSubmissions.json";
+const pendingSubmissions = {};
+
+function loadPendingSubmissions() {
+    try {
+        if (fs.existsSync(PENDING_FILE)) {
+            const data = fs.readFileSync(PENDING_FILE, "utf8");
+            const loaded = JSON.parse(data);
+            Object.assign(pendingSubmissions, loaded);
+            console.log(`✅ Loaded ${Object.keys(pendingSubmissions).length} pending submissions`);
+        }
+    } catch (e) {
+        console.error("❌ Error loading pending submissions:", e);
+    }
+}
+
+function savePendingSubmissions() {
+    try {
+        // No guardamos el buffer (muy pesado)
+        const toSave = {};
+        for (const [id, data] of Object.entries(pendingSubmissions)) {
+            const { attachmentBuffer, ...rest } = data;
+            toSave[id] = rest;
+        }
+        fs.writeFileSync(PENDING_FILE, JSON.stringify(toSave, null, 2));
+    } catch (e) {
+        console.error("❌ Error saving pending submissions:", e);
+    }
+}
 
 // ==================== BACKBLAZE B2 ====================
 async function uploadToB2(buffer, fileName) {
@@ -103,11 +135,6 @@ const TAG_ORIGINAL         = "1505687564672045228";
 
 const CHANNELS_COMMANDS_ONLY = [CHANNEL_SUBMIT];
 
-// pendingSubmissions: { reviewId -> data }
-// data incluye: name, artist, levelid, isMashup, isOriginal, songs, songDisplay,
-//               attachmentBuffer, attachmentName, userId, threadId
-const pendingSubmissions = {};
-
 // ==================== HELPERS ====================
 function isModOrOwner(interaction) {
     if (interaction.user.id === OWNER_ID) return true;
@@ -131,7 +158,6 @@ async function saveIndex(OWNER, REPO, PATH, json, sha, message) {
     });
 }
 
-// Actualiza los tags y cierra/bloquea el thread del foro
 async function closeForumThread(threadId, tagIds) {
     try {
         const thread = await client.channels.fetch(threadId);
@@ -143,7 +169,6 @@ async function closeForumThread(threadId, tagIds) {
     }
 }
 
-// Reconstruye los botones del post del foro (para editar después de un edit de submission)
 function buildForumRows(reviewId) {
     const modRow = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId(`approve_${reviewId}`).setLabel("Approve ✅").setStyle(ButtonStyle.Success),
@@ -156,7 +181,7 @@ function buildForumRows(reviewId) {
     return [modRow, userRow];
 }
 
-// ==================== SUBMISSION HISTORY (en memoria) ====================
+// ==================== SUBMISSION HISTORY ====================
 const submissionHistory = {};
 
 function recordSubmission(userId, entry) {
@@ -172,6 +197,37 @@ function updateSubmissionStatus(userId, reviewId, status, reason = null) {
         entry.status = status;
         if (reason) entry.reason = reason;
     }
+}
+
+// ==================== FORUM CONTENT MEJORADO ====================
+function buildForumContent(data) {
+    const type     = data.isMashup ? "🎛️ Mashup" : "🎵 Song";
+    const original = data.isOriginal ? "✅ **Sí**" : "❌ **No**";
+
+    let content = [
+        `${type} Submission`,
+        ``,
+        `🎵 **Name:** ${data.name}`,
+        `🎤 **Artist:** ${data.artist}`,
+        `🔢 **Level ID:** ${data.levelid}`,
+    ];
+
+    if (data.levelData) {
+        const level = data.levelData;
+        content.push(
+            `📛 **Level Name:** ${level.name || "Unknown"}`,
+            `👤 **Level Author:** ${level.author || "Unknown"}`,
+            `🎶 **GD Song:** ${data.songDisplay}`
+        );
+    }
+
+    content.push(
+        `🎼 **Original:** ${original}`,
+        ``,
+        `👤 **Submitted by:** <@${data.userId}>`
+    );
+
+    return content.join("\n");
 }
 
 // ==================== COMMANDS ====================
@@ -252,7 +308,6 @@ client.on("interactionCreate", async interaction => {
     // ==================== BUTTONS ====================
     if (interaction.isButton()) {
 
-        // ── APPROVE / APPROVE + VERIFY ──
         if (interaction.customId.startsWith("approve_") || interaction.customId.startsWith("approve_verify_")) {
             if (!isModOrOwner(interaction)) {
                 await interaction.reply({ content: "❌ You don't have permission to do this.", ephemeral: true });
@@ -292,7 +347,6 @@ client.on("interactionCreate", async interaction => {
 
                 updateSubmissionStatus(data.userId, reviewId, isVerify ? "approved_verified" : "approved");
 
-                // Notificar al usuario
                 const notifyChannel = await client.channels.fetch(CHANNEL_NOTIFY).catch(() => null);
                 if (notifyChannel) {
                     await notifyChannel.send({
@@ -301,13 +355,13 @@ client.on("interactionCreate", async interaction => {
                     });
                 }
 
-                // Cerrar el thread del foro con el tag correcto
                 const closeTags = [isVerify ? TAG_APPROVED_VERIFY : TAG_APPROVED];
                 if (data.isMashup)  closeTags.push(TAG_MASHUP);
                 if (data.isOriginal) closeTags.push(TAG_ORIGINAL);
                 await closeForumThread(data.threadId, closeTags);
 
                 delete pendingSubmissions[reviewId];
+                savePendingSubmissions();
 
             } catch (err) {
                 console.error("[APPROVE ERROR]", err);
@@ -316,7 +370,6 @@ client.on("interactionCreate", async interaction => {
             return;
         }
 
-        // ── REJECT ──
         if (interaction.customId.startsWith("reject_") && !interaction.customId.startsWith("reject_modal_")) {
             if (!isModOrOwner(interaction)) {
                 await interaction.reply({ content: "❌ You don't have permission to do this.", ephemeral: true });
@@ -347,7 +400,6 @@ client.on("interactionCreate", async interaction => {
             return;
         }
 
-        // ── EDIT SUBMISSION (botón del usuario en el foro) ──
         if (interaction.customId.startsWith("edit_sub_")) {
             const reviewId = interaction.customId.replace("edit_sub_", "");
             const data = pendingSubmissions[reviewId];
@@ -391,7 +443,6 @@ client.on("interactionCreate", async interaction => {
     // ==================== MODALS ====================
     if (interaction.isModalSubmit()) {
 
-        // ── REJECT MODAL ──
         if (interaction.customId.startsWith("reject_modal_")) {
             const reviewId = interaction.customId.replace("reject_modal_", "");
             const data = pendingSubmissions[reviewId];
@@ -414,7 +465,6 @@ client.on("interactionCreate", async interaction => {
                 });
             }
 
-            // Postear la razón en el thread antes de cerrarlo
             try {
                 const thread = await client.channels.fetch(data.threadId);
                 await thread.send({ content: `❌ **Rejected**\n**Reason:** ${reason}` });
@@ -428,11 +478,11 @@ client.on("interactionCreate", async interaction => {
             await closeForumThread(data.threadId, closeTags);
 
             delete pendingSubmissions[reviewId];
+            savePendingSubmissions();
             await interaction.editReply({ content: `❌ **${data.name}** rejected.\nReason: ${reason}` });
             return;
         }
 
-        // ── EDIT SUBMISSION MODAL ──
         if (interaction.customId.startsWith("edit_sub_modal_")) {
             const reviewId = interaction.customId.replace("edit_sub_modal_", "");
             const data = pendingSubmissions[reviewId];
@@ -452,15 +502,16 @@ client.on("interactionCreate", async interaction => {
             data.name   = newName;
             data.artist = newArtist;
 
-            // Actualizar historial en memoria
             const histEntry = submissionHistory[data.userId]?.find(e => e.reviewId === reviewId);
-            if (histEntry) { histEntry.name = newName; histEntry.artist = newArtist; }
+            if (histEntry) { 
+                histEntry.name = newName; 
+                histEntry.artist = newArtist; 
+            }
 
-            // Editar el primer mensaje del thread con la info actualizada
             try {
                 const thread   = await client.channels.fetch(data.threadId);
                 const messages = await thread.messages.fetch({ limit: 5 });
-                const firstMsg = messages.last(); // el más antiguo
+                const firstMsg = messages.last();
                 if (firstMsg) {
                     const updatedContent = buildForumContent(data);
                     await firstMsg.edit({ content: updatedContent, components: buildForumRows(reviewId) });
@@ -471,6 +522,7 @@ client.on("interactionCreate", async interaction => {
             }
 
             await interaction.editReply({ content: `✏️ Updated!\nName: **${oldName}** → **${newName}**\nArtist: **${oldArtist}** → **${newArtist}**` });
+            savePendingSubmissions();
             return;
         }
     }
@@ -686,32 +738,14 @@ client.on("interactionCreate", async interaction => {
     }
 });
 
-// ==================== BUILD FORUM POST CONTENT ====================
-function buildForumContent(data) {
-    const type     = data.isMashup ? "🎛️ Mashup" : "🎵 Song";
-    const original = data.isOriginal ? "\n🎼 **Original:** Yes" : "\n🎼 **Original:** No";
-    return [
-        `${type} submission`,
-        ``,
-        `🎵 **Name:** ${data.name}`,
-        `🎤 **Artist:** ${data.artist}`,
-        `🔢 **Level ID:** ${data.levelid}`,
-        `🎶 **GD Song:** ${data.songDisplay}`,
-        original,
-        `👤 **Submitted by:** <@${data.userId}>`
-    ].join("\n");
-}
-
-// ==================== SEND FOR REVIEW (crea el post en el foro) ====================
+// ==================== SEND FOR REVIEW ====================
 async function sendForReview(interaction, data, title) {
     try {
-        // Descargar archivo
         const fileRes = await fetch(data.attachmentUrl);
         if (!fileRes.ok) throw new Error(`HTTP ${fileRes.status}`);
         data.attachmentBuffer = Buffer.from(await fileRes.arrayBuffer());
         delete data.attachmentUrl;
 
-        // Obtener info del nivel desde GDBrowser
         const gdbRes = await fetch(`https://gdbrowser.com/api/level/${data.levelid}`);
         if (!gdbRes.ok) throw new Error("GDBrowser error");
         const level = await gdbRes.json();
@@ -727,16 +761,17 @@ async function sendForReview(interaction, data, title) {
 
         data.songs       = [resolved.indexId];
         data.songDisplay = resolved.isOfficial ? `${resolved.name} (official)` : `ID ${resolved.indexId}`;
+        data.levelData   = level;
 
         const reviewId = Date.now().toString();
         pendingSubmissions[reviewId] = { ...data };
 
-        // Tags iniciales del post
+        savePendingSubmissions();
+
         const initialTags = [TAG_PENDING];
         if (data.isMashup)   initialTags.push(TAG_MASHUP);
         if (data.isOriginal) initialTags.push(TAG_ORIGINAL);
 
-        // Crear el thread en el foro
         const forum = await client.channels.fetch(CHANNEL_FORUM);
         const thread = await forum.threads.create({
             name: `${data.name} — ${data.artist}`,
@@ -748,10 +783,9 @@ async function sendForReview(interaction, data, title) {
             }
         });
 
-        // Guardar el threadId en la submission
         pendingSubmissions[reviewId].threadId = thread.id;
+        savePendingSubmissions();
 
-        // Registrar en historial
         recordSubmission(data.userId, {
             reviewId,
             type:        data.isMashup ? "mashup" : "song",
@@ -770,6 +804,9 @@ async function sendForReview(interaction, data, title) {
         await interaction.editReply({ content: `❌ Error: ${err.message}` }).catch(() => {});
     }
 }
+
+// ==================== INICIO DEL BOT ====================
+loadPendingSubmissions();
 
 client.login(process.env.DISCORD_TOKEN)
     .then(() => console.log("✅ Bot connected successfully"))
