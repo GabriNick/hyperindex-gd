@@ -288,8 +288,8 @@ const commands = [
         .addStringOption(opt => opt.setName("name").setDescription("Song name").setRequired(true)),
 
     new SlashCommandBuilder()
-        .setName("fix-expired-links")
-        .setDescription("Check and fix all expired song links (Owner only)")
+        .setName("clear-index")
+        .setDescription("🗑️ Eliminar TODAS las canciones del index.json (Owner only)"),
 ];
 
 // ==================== REGISTER COMMANDS ====================
@@ -717,38 +717,34 @@ client.on("interactionCreate", async interaction => {
         return;
     }
 
-    // ==================== FIX EXPIRED LINKS ====================
-    if (interaction.commandName === "fix-expired-links") {
+    // ==================== CLEAR INDEX ====================
+    if (interaction.commandName === "clear-index") {
         if (interaction.user.id !== OWNER_ID) {
-            await interaction.editReply({ content: "❌ You don't have permission." });
+            await interaction.editReply({ content: "❌ Solo el Owner puede usar este comando." });
             return;
         }
 
-        await interaction.editReply({ content: "🔍 Checking all links..." });
-        let checked = 0, failed = 0;
-
         try {
-            const { json } = await getIndex();
-            if (!json.nongs?.hosted) { await interaction.editReply({ content: "No songs found." }); return; }
+            const { file, json, OWNER, REPO, PATH } = await getIndex();
 
-            const deadSongs = [];
-            for (const [, song] of Object.entries(json.nongs.hosted)) {
-                if (!song.url) continue;
-                checked++;
-                let isAlive = false;
-                try { const res = await fetch(song.url, { method: "HEAD" }); isAlive = res.ok; } catch { isAlive = false; }
-                if (!isAlive) { failed++; deadSongs.push(`• **${song.name}** — ${song.artist}`); }
-            }
+            const oldCount = json.nongs?.hosted ? Object.keys(json.nongs.hosted).length : 0;
 
-            const deadList = deadSongs.length > 0 ? `\n\nDead links:\n${deadSongs.join("\n")}` : "";
+            // Mantener la estructura pero vaciar las canciones
+            if (!json.nongs) json.nongs = {};
+            json.nongs.hosted = {};
+
+            await saveIndex(OWNER, REPO, PATH, json, file.sha, "🗑️ Clear all songs from index");
+
             await interaction.editReply({
-                content: `✅ Done!\nChecked: **${checked}** · Dead: **${failed}**${deadList}` +
-                    (failed > 0 ? `\n\n⚠️ These need to be re-submitted.` : "\n\n🎉 All links alive!")
+                content: `✅ **Index limpiado correctamente**\n\n` +
+                         `Se eliminaron **${oldCount}** canciones.`
             });
 
+            console.log(`🗑️ Index cleared by ${interaction.user.tag} (${oldCount} songs removed)`);
+
         } catch (err) {
-            console.error("[FIX ERROR]", err);
-            await interaction.editReply({ content: `❌ Error: ${err.message}` });
+            console.error("[CLEAR INDEX ERROR]", err);
+            await interaction.editReply({ content: `❌ Error al limpiar el index: ${err.message}` });
         }
         return;
     }
