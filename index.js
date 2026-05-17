@@ -36,20 +36,36 @@ const pendingSubmissions = {};
 
 function loadPendingSubmissions() {
     try {
-        if (fs.existsSync(PENDING_FILE)) {
-            const data = fs.readFileSync(PENDING_FILE, "utf8");
-            const loaded = JSON.parse(data);
-            Object.assign(pendingSubmissions, loaded);
-            console.log(`✅ Loaded ${Object.keys(pendingSubmissions).length} pending submissions`);
+        if (!fs.existsSync(PENDING_FILE)) {
+            console.log("📁 No pending submissions file found, starting fresh.");
+            return;
         }
+
+        const raw = fs.readFileSync(PENDING_FILE, "utf8").trim();
+        
+        if (raw === "" || raw === "{}") {
+            console.log("📭 pendingSubmissions.json is empty, starting fresh.");
+            return;
+        }
+
+        const loaded = JSON.parse(raw);
+        Object.assign(pendingSubmissions, loaded);
+        console.log(`✅ Loaded ${Object.keys(pendingSubmissions).length} pending submissions`);
+        
     } catch (e) {
-        console.error("❌ Error loading pending submissions:", e);
+        console.error("❌ Error loading pending submissions:", e.message);
+        // Si hay error, creamos un archivo vacío correcto
+        try {
+            fs.writeFileSync(PENDING_FILE, "{}");
+            console.log("📄 Created new empty pendingSubmissions.json");
+        } catch (writeErr) {
+            console.error("Could not create pending file:", writeErr.message);
+        }
     }
 }
 
 function savePendingSubmissions() {
     try {
-        // No guardamos el buffer (muy pesado)
         const toSave = {};
         for (const [id, data] of Object.entries(pendingSubmissions)) {
             const { attachmentBuffer, ...rest } = data;
@@ -57,7 +73,7 @@ function savePendingSubmissions() {
         }
         fs.writeFileSync(PENDING_FILE, JSON.stringify(toSave, null, 2));
     } catch (e) {
-        console.error("❌ Error saving pending submissions:", e);
+        console.error("❌ Error saving pending submissions:", e.message);
     }
 }
 
